@@ -1,0 +1,3 @@
+Idempotence, in programming and mathematics, is a property of some operations such that no matter how many times you execute them, you achieve the same result.
+In the context of REST APIs, no matter how many times you execute a GET statement, you should get the same result.
+In the context of lambda / redshift used in this project, idempotence would mean ensuring duplicates are not loaded into redshift even if there are multiple lambda invocations.

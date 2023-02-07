@@ -1,0 +1,34 @@
+Now create a basic Python lambda function with the SQS queue created above, as the trigger.
+Make sure the role associated with the lambda function has access to read from SQS - else attach required IAM policy to the role.
+
+In the first step, we can just print(event) and also in the import we can include boto3 as boto3 is needed for any operation related to the aws services.
+Upload file in S3 bucket. Check in CloudWatch logs if lambda got triggered and what has been printed as part of print(event).
+Use json formatter to understand the structure of the event.
+Build the logic to retrieve the required attributes like s3 file name, file size etc from event / event['Records'].
+
+Once all required attributes are retrieved, insert into dynamodb audit table.
+Make sure the role associated with the lambda function has access to write to dynamodb - else attach required IAM policy to the role.
+Note the usage of batch writing into dynamodb.
+Batch writing helps to:
+a) Achieve higher throughput and lower latencies by writing, deleting, or replacing multiple items in a single request
+b) Take advantage of parallelism without having to manage multiple threads on your own
+
+Trigger Glue Crawler on the tranformed area so that Athena will have the latest data for analysis.
+Make sure the role associated with the lambda function has required glue access.
+
+Then, Connect to redshift.
+Execute copy command to copy transformed orders into redshift staging layer.
+Then invoke redshift stored proc to process enriched orders data (join orders staging data with reference - customer - data) into redshift final layer.
+Truncate the redshift staging table, so that we dont process the same data every time.
+Run a "cleanup sql" to ensure we dont insert duplicates in the final redshift table, due to multiple lambda invocations.
+
+Another important aspect we need to ensure when running Redshift commands in lambda is to ensure that the statements are executed in the correct sequence.
+That is, we need to ensure the final table load starts only after the completion of staging table load. Similarly trunaction of staging table must happen only after the insert into final table is completed. The concept of "synchronous & asynchronous invocations" in lambda comes into play here.
+Refer Lambda - synchronous and asynchronous invocations.txt for more details on lambda synchronous & asynchronous invocations.
+
+One more very important aspect that we need to keep in mind is that Lambda has a maximum timeout of 15 minutes.
+If the Glue crawler execution, DynamoDB inserts and multiple Redshift commands take more than 15 minutes, we will not be able to use lambda and we should go for Glue job, as we did in teh historical data migration.
+
+Refer Code\Lambda\orders-transformed-data-ongoing-data-function.txt for the final code.
+
+

@@ -1,0 +1,29 @@
+***********************************  Synchronous lambda invocation ******************************
+
+Synchronous invocations are the most straight forward way to invoke your Lambda functions. 
+In this model, your functions execute immediately when you perform the Lambda Invoke API call. 
+This can be accomplished through a variety of options, including using the CLI or any of the supported SDKs.
+
+Here is an example of a synchronous invoke using the CLI:
+aws lambda invoke —function-name MyLambdaFunction —invocation-type RequestResponse —payload  “[JSON string here]”
+
+The Invocation-type flag specifies a value of “RequestResponse”. This instructs AWS to execute your Lambda function and wait for the function to complete. When you perform a synchronous invoke, you are responsible for checking the response and determining if there was an error and if you should retry the invoke.
+
+
+***********************************  Aysnchronous lambda invocation ******************************
+
+
+Several AWS services, such as Amazon Simple Storage Service (Amazon S3) and Amazon Simple Notification Service (Amazon SNS), invoke functions asynchronously to process events. 
+When you invoke a function asynchronously, you don't wait for a response from the function code. 
+You hand off the event to Lambda and Lambda handles the rest.
+
+For asynchronous invocation, Lambda places the event in a queue and returns a success response without additional information. 
+A separate process reads events from the queue and sends them to your function. To invoke a function asynchronously, set the invocation type parameter to Event.
+
+
+aws lambda invoke \
+  --function-name my-function  \
+      --invocation-type Event \
+          --cli-binary-format raw-in-base64-out \
+              --payload '{ "key": "value" }' response.json
+  

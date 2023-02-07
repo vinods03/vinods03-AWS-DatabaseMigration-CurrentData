@@ -1,0 +1,28 @@
+There are 3 important timout / time-limits which we need to be aware of.
+If this is not set correctly, we could see multiple uncontrolled executions of state machine (that could end up creating multiple EMR clusters), glue crawler etc.
+
+Lambda Timeout:
+
+Lambda runs your code for a set amount of time before timing out. Timeout is the maximum amount of time in seconds that a Lambda function can run. 
+The default value for this setting is 3 seconds, but you can adjust this in increments of 1 second up to a maximum value of 15 minutes.
+If lambda has a lot of tasks to perform and it cannot complete within the timeout time, it will fail.
+The timeout is set to 5 minutes for the landing area lambda function that will start the glue crawler on landing area, glue job that transforms / moves the data to transformed layer and make entries in dynamodb. 
+The timeout is set to 5 minutes for the transformed area lambda function that will start the glue crawler on transformed area, load data into redshift and make entries in dynamodb. 
+
+SQS Trigger in Lambda - Batch window:
+
+The batch window in the SQS trigger of the lambda functions indicates the time for which lambda waits till starting to execute.
+We will use batching if we dont want the functions to execute after every message but only for once for multiple messages.
+I have set the batch size to 10000 and batch window to 3 minutes for the landing area & transformed area SQS trigger.
+If 10000 messages come before 3 minutes, the lambda can start before 5 minutes, else lambda will wait for 5 minutes and then start execution.
+
+SQS Visibility Timeout:
+
+SQS Visibility Timeout is the time limit upto which, if the messages are not consumed by the consumer application (like lambda), they start appearing in the queue again.
+This should be atleast 3 + 5 = 8 minutes for us.
+
+Delivery Delay:
+
+In both the SQS queues, we can add a delivery delay of upto 15 minutes.
+For ongoing data replication, it might be too costly to process into Redshift continuously.
+Further to the batching done at the lambda trigger level, this delivery delay (if acceptable to business) can help in increased batching.

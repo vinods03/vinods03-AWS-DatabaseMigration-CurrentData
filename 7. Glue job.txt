@@ -1,0 +1,8 @@
+Once data is available in the landing layer, we can create a Spark GLue job and execute / test the job to see if it can transform the data as required.
+In the Glue jobs console, i used Create using "Spark script editor" / Create a new script with boilerplate code.
+Then i used the same spark script that was used in the historical data process -> EMR cluster -> Step function and made some minor changes like below:
+a) Used the SparkSession that is created as part of the boilerplate code
+b) copied the code in util.py as well into the main script
+c) the environ variables are now passed as "Job Parameters"
+
+Refer Code\Glue\Spark Glue job - landing layer to transformed layer.txt for the code.
