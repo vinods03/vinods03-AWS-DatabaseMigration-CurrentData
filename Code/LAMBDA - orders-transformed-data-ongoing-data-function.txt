@@ -1,0 +1,120 @@
+import boto3, json, time, os
+
+dynamodb_resource = boto3.resource('dynamodb')
+audit_table = dynamodb_resource.Table('orders-audit-table')
+
+glue_client = boto3.client('glue')
+crawler_name = 's3-orders-current-transformed-crawler-copy'
+
+redshift_client = boto3.client('redshift-data')
+
+secret_name = 'redshift_secret'
+
+def lambda_handler(event, context):
+    
+    # start glue crawler on the transformed layer
+    
+    try:      
+        
+        glue_client.start_crawler(Name = crawler_name)
+        print('Glue crawler ', crawler_name, ' started successfully')
+        
+        crawler_run_state = glue_client.get_crawler(Name = crawler_name)['Crawler']['State']
+        print('Glue crawler run status ',crawler_run_state)
+        
+        while (glue_client.get_crawler(Name = crawler_name)['Crawler']['State'] != 'READY'):
+            time.sleep(15)
+        
+        print(crawler_name, ' has completed successfully')
+        
+    except Exception as e:
+        print('Unable to start the glue crawler ', crawler_name, '. The exception is ', e)
+        
+    # secretsmanager and redshift
+    
+    session = boto3.session.Session()
+    secretsmanager_client = session.client(service_name = 'secretsmanager', region_name = 'us-east-1')
+    get_secret_value_response = secretsmanager_client.get_secret_value(SecretId = secret_name)
+    secret_arn = get_secret_value_response['ARN']
+    secret = get_secret_value_response['SecretString']
+    secret_json = json.loads(secret)
+    cluster_id = secret_json['dbClusterIdentifier']
+    
+    print('secret_arn is ', secret_arn)
+    print('secrent json is ', secret_json)
+    print('cluster id is ', cluster_id)
+    
+    stg_copy_query = """copy ecommerce_staging.orders from 's3://vinod-ecommerce-data-transformed-current/orders/'
+            iam_role 'arn:aws:iam::100163808729:role/MyRedshiftRoleWithS3Access'
+            FORMAT AS PARQUET;"""
+    print('The stg copy query is ', stg_copy_query)
+    
+    final_query = """call enriched_orders_sp();"""
+    print('The final query is ', final_query)
+    
+    try:
+        
+        response1 = redshift_client.execute_statement(ClusterIdentifier = cluster_id, Database = 'dev', SecretArn = secret_arn, Sql = stg_copy_query)
+        print('response1 is ', response1)
+        
+        sql1_id = response1['Id']
+        print('sql1_id is ', sql1_id)
+        
+        # result = redshift_client.describe_statement(Id = sql1_id)
+        # print('result is ', result['Status'])
+        
+        while (redshift_client.describe_statement(Id = sql1_id)['Status'] != 'FINISHED'):
+            time.sleep(15)
+            
+        print('Redshift staging table loaded successfully')
+
+        response2 = redshift_client.execute_statement(ClusterIdentifier = cluster_id, Database = 'dev', SecretArn = secret_arn, Sql = final_query)
+        print('response2 is ', response2)
+        
+        sql2_id = response2['Id']
+        print('sql2_id is ', sql2_id)
+        
+        while (redshift_client.describe_statement(Id = sql2_id)['Status'] != 'FINISHED'):
+            time.sleep(15)
+            
+        print('Redshift final table loaaded successfully')
+            
+    except Exception as e:
+        print('Redshift process has failed with exception ', e)
+            
+    # dynamodb audit entries for files in transformed layer
+     
+    items_to_add = []
+    
+    for i in event['Records']:
+        print('i is: ', i)
+        
+        s3_event = json.loads(i['body'])
+        print('s3_event is: ', s3_event)
+        
+        for j in s3_event['Records']:
+            print('j is: ', j)
+            
+            bucket_name = j['s3']['bucket']['name']
+            file_name = bucket_name + j['s3']['object']['key']
+            file_size = j['s3']['object']['size']
+            file_etag = j['s3']['object']['eTag']
+            
+            print('bucket_name: ', bucket_name)
+            print('file_name: ', file_name)
+            print('file_size: ', file_size)
+            print('file_etag: ', file_etag)
+            
+        item = {'file_name': file_name, 'file_etag': file_etag, 'file_size': file_size,  'pipeline_layer': 'transformed_area'}
+        items_to_add.append(item)
+        
+    print('The final list is: ', items_to_add)
+     
+    try:       
+        with audit_table.batch_writer() as batch:
+            for item in items_to_add:
+                batch.put_item(Item = item)
+        print('Data loaded successfully in audit table for the transformed layer')
+    except Exception as e:
+        print('Unable to complete audit entries for the transformed layer. The exception is ', e)
+        raise

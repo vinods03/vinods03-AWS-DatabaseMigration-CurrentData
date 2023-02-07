@@ -1,0 +1,95 @@
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from awsglue.job import Job
+from pyspark.sql.functions import year, month, dayofmonth, col
+
+## @params: [JOB_NAME]
+args = getResolvedOptions(sys.argv, ['JOB_NAME','src_file_format','src_file_dir','tgt_file_format','tgt_file_dir','order_purchase_yr','appName'])
+
+sc = SparkContext()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+job = Job(glueContext)
+job.init(args['JOB_NAME'], args)
+
+src_file_format = args['src_file_format']
+src_file_dir = args['src_file_dir']
+tgt_file_format = args['tgt_file_format']
+tgt_file_dir = args['tgt_file_dir']
+order_purchase_yr = args['order_purchase_yr']
+appName = args['appName']
+
+
+def read(spark, src_file_format, src_file_dir):
+    df = spark.read.format(src_file_format).load(f'{src_file_dir}')
+    return df
+
+def write(df, tgt_file_format, tgt_file_dir):
+    df.write.partitionBy('order_purchase_year','order_purchase_month','order_purchase_day').mode('append').format(tgt_file_format).save(tgt_file_dir)
+    
+def assign_orders_columns(df):
+    updated_df = df.withColumnRenamed('_c0','order_id')\
+      .withColumnRenamed('_c1','customer_id')\
+      .withColumnRenamed('_c2','order_status')\
+      .withColumnRenamed('_c3','order_purchase_timestamp')\
+      .withColumnRenamed('_c4','order_approved_at')\
+      .withColumnRenamed('_c5','order_delivered_carrier_date')\
+      .withColumnRenamed('_c6','order_delivered_customer_date')\
+      .withColumnRenamed('_c7','order_estimated_delivery_date')
+    
+    return updated_df
+
+def fltr(df, yr):
+    fltr_df = df.filter(year(col("order_purchase_timestamp")) > yr)
+    return fltr_df
+
+def transform(df):
+    df1 = df.withColumn('order_purchase_year', year('order_purchase_timestamp'))\
+                    .withColumn('order_purchase_month', month('order_purchase_timestamp'))\
+                    .withColumn('order_purchase_day', dayofmonth('order_purchase_timestamp'))
+    df2 = df1.select(['order_id', 'customer_id', 'order_status', 'order_estimated_delivery_date', 'order_delivered_customer_date', 'order_purchase_year', 'order_purchase_month', 'order_purchase_day'])
+    return df2
+    
+def core():
+    
+    spark.sql('select current_date()').show()
+    
+    orders_df = read(spark, src_file_format, src_file_dir)
+        
+    print('*************** Original schema ***************')
+    orders_df.printSchema()
+    
+    print('*************** Updated Schema ***************')
+    updated_orders_df = assign_orders_columns(orders_df)
+    updated_orders_df.printSchema()
+    
+    print('Number of records to be processed: ', updated_orders_df.count())
+        
+    print('*************** Sample record after schema update ******************')
+    updated_orders_df.show(1, truncate = False)
+    
+    print('************** Filter data *****************')
+    filtered_df = fltr(updated_orders_df, order_purchase_yr)
+    filtered_df.show(1, truncate = False)
+    print('Number of records after applying filter: ', filtered_df.count())
+    
+    print('************** Filtered and Transformed schema ******************')
+    transformed_df = transform(filtered_df)
+    transformed_df.printSchema()
+    
+    print('************** Sample record after applying filter and transformation ******************')
+    transformed_df.show(1, truncate = False)
+    
+    try:
+        write(transformed_df, tgt_file_format, tgt_file_dir)
+        print('Number of records written into the target bucket is: ', transformed_df.count())
+    except Exception as e:
+        print('Write to target failed with exception ', e)
+    
+if __name__ == '__main__':
+    core()
+    
+job.commit()

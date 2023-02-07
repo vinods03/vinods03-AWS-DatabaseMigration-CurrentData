@@ -1,0 +1,38 @@
+CREATE OR REPLACE PROCEDURE enriched_orders_sp()
+AS $$
+BEGIN
+
+ RAISE INFO 'STARTING THE LOAD INTO ecommerce.orders';
+
+ -- This is to ensure that the redshift final table has only one record per order_id
+ -- Suppose an order is placed at 1 PM and it gets updated at 4 PM, the redshift final table will have only the record that came at 4 PM
+
+ DELETE from ecommerce.orders 
+ using ecommerce_staging.orders 
+ where ecommerce.orders.order_id = ecommerce_staging.orders.order_id;
+ 
+ -- Insert into fact by after joining with reference table
+
+ INSERT INTO ecommerce.orders
+ select order_id, order_status, order_estimated_delivery_date, order_delivered_customer_date,
+ a.customer_id, customer_city, customer_state, getdate() as create_timestamp
+ from ecommerce_staging.orders a left outer join ecommerce.customers b
+ on a.customer_id = b.customer_id;
+
+ -- Cleanup the staging table so that, in the next run we only have the latest data in staging table
+
+ TRUNCATE TABLE ecommerce_staging.orders;
+ 
+ RAISE INFO 'COMPLETED THE LOAD INTO ecommerce.orders';
+
+EXCEPTION 
+ 
+ WHEN OTHERS THEN
+ RAISE EXCEPTION 'LOAD INTO ecommerce.orders failed';
+ 
+END;
+$$ LANGUAGE plpgsql;
+
+------------------------------------ How to invoke / test the above stored proc from within redshift: -------------------------------------------
+
+call enriched_orders_sp();
